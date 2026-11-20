@@ -1,0 +1,8 @@
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:74:5:main	64	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:137:6:SystemClock_Config	112	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:188:13:MX_ADC_Init	16	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:244:13:MX_TIM2_Init	32	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:289:13:MX_USART2_UART_Init	8	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:322:13:MX_DMA_Init	16	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:340:13:MX_GPIO_Init	16	static
+C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/Core/Src/main.c:362:6:Error_Handler	8	static,ignoring_inline_asm

@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/build/Debug/cmake_install.cmake",
+		"C:/Users/narsc/OneDrive/Documents/GitHub/SR-Design/MRAS_L031/build/Debug/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

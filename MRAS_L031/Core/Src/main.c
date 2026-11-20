@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,6 +65,77 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* MRAS: finite DMA blocks, nominal 800 kS/s, external 100 kHz.
+ * Short 64-sample Fourier windows limit sensitivity to HSI clock error.
+ * No TX phase reference: amplitude only. Calibration is held in RAM. */
+#define MRAS_N 64U
+#define MRAS_BLOCKS 16U
+static uint16_t adc_samples[MRAS_N] __attribute__((aligned(4)));
+static volatile uint8_t adc_done;
+static uint32_t refs[6];
+static uint8_t valid[6];
+static const char *const names[6]={"Air", "Aluminum", "Copper", "Steel", "Stainless steel", "Brass"};
+static const int16_t cos8[8]={256,181,0,-181,-256,-181,0,181};
+static const int16_t sin8[8]={0,181,256,181,0,-181,-256,-181};
+static void send(const char *s){ HAL_UART_Transmit(&huart2,(uint8_t *)s,(uint16_t)strlen(s),200); }
+static uint32_t root64(uint64_t x){
+    uint64_t r=0, b=(uint64_t)1<<62;
+    while(b>x) b>>=2;
+    while(b){if(x>=r+b){x-=r+b;r=(r>>1)+b;}else r>>=1;b>>=2;}
+    return (uint32_t)r;
+}
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *h){
+    if(h->Instance==ADC1){HAL_TIM_Base_Stop(&htim2);adc_done=1;}
+}
+static int measure(uint32_t *peak, uint32_t *dc){
+    uint32_t total=0, bias=0;
+    for(unsigned b=0;b<MRAS_BLOCKS;b++){
+        adc_done=0;
+        __HAL_TIM_SET_COUNTER(&htim2,0);
+        if(HAL_ADC_Start_DMA(&hadc,(uint32_t *)adc_samples,MRAS_N)!=HAL_OK){HAL_ADC_Stop_DMA(&hadc);return 0;}
+        if(HAL_TIM_Base_Start(&htim2)!=HAL_OK){HAL_ADC_Stop_DMA(&hadc);return 0;}
+        uint32_t start=HAL_GetTick();
+        while(!adc_done && HAL_GetTick()-start<30U){}
+        HAL_TIM_Base_Stop(&htim2);
+        if(HAL_ADC_Stop_DMA(&hadc)!=HAL_OK || !adc_done) return 0;
+        int32_t i=0,q=0;
+        for(unsigned k=0;k<MRAS_N;k++){
+            uint16_t v=adc_samples[k];
+            if(v<=5 || v>=4090) return -1;
+            bias+=v;
+            i+=(int32_t)v*cos8[k&7U];q+=(int32_t)v*sin8[k&7U];
+        }
+        uint64_t power=(uint64_t)((int64_t)i*i)+(uint64_t)((int64_t)q*q);
+        total+=(2U*root64(power)+MRAS_N*128U)/(MRAS_N*256U);
+    }
+    *peak=(total+MRAS_BLOCKS/2U)/MRAS_BLOCKS;
+    *dc=bias/(MRAS_N*MRAS_BLOCKS);
+    return 1;
+}
+static void mras_task(void){
+    uint8_t cmd; uint32_t a,dc; char msg[150];
+    if(HAL_UART_Receive(&huart2,&cmd,1,100)!=HAL_OK)return;
+    if(cmd=='?' || cmd=='h'){send("0=air 1=Al 2=Cu 3=steel 4=stainless 5=brass m=measure r=classify\r\n");return;}
+    if(!((cmd>='0' && cmd<='5') || cmd=='m' || cmd=='r'))return;
+    int ok=measure(&a,&dc);
+    if(ok==0){send("ADC/DMA acquisition error\r\n");return;}
+    if(ok<0){send("ADC near rail: check bias/gain/input\r\n");return;}
+    snprintf(msg,sizeof msg,"Peak=%lu counts (~%lu mV assuming 3.3V), DC=%lu counts\r\n",(unsigned long)a,(unsigned long)((a*3300U+2048U)/4096U),(unsigned long)dc);send(msg);
+    if(cmd=='m')return;
+    if(cmd>='0' && cmd<='5'){
+        unsigned j=cmd-'0';refs[j]=a;valid[j]=1;
+        snprintf(msg,sizeof msg,"Calibrated %s\r\n",names[j]);send(msg);return;
+    }
+    for(unsigned j=0;j<6;j++)if(!valid[j]){send("Calibrate all 6 references first\r\n");return;}
+    unsigned best=0;uint32_t d=UINT32_MAX,second=UINT32_MAX;
+    for(unsigned j=0;j<6;j++){
+        uint32_t e=a>refs[j]?a-refs[j]:refs[j]-a;
+        if(e<d){second=d;d=e;best=j;}else if(e<second)second=e;
+    }
+    /* Initial thresholds only; tune against repeated experimental measurements. */
+    const char *label=(d>20U || second-d<10U)?"Unknown / ambiguous":names[best];
+    snprintf(msg,sizeof msg,"Detected: %s | distance=%lu counts\r\n",label,(unsigned long)d);send(msg);
+}
 
 /* USER CODE END 0 */
 
@@ -102,12 +174,11 @@ int main(void)
   MX_USART2_UART_Init();
 
 /* USER CODE BEGIN 2 */
-
-uint8_t message[] = "MRAS L031 initialized!\r\n";
-
-HAL_UART_Transmit(&huart2, message,
-                  sizeof(message) - 1, HAL_MAX_DELAY);
-
+  if(HAL_ADCEx_Calibration_Start(&hadc, ADC_SINGLE_ENDED)!=HAL_OK){
+    send("ADC calibration failed\r\n");
+    Error_Handler();
+  }
+  send("MRAS L031 ready. 0=air 1=Al 2=Cu 3=steel 4=stainless 5=brass m=measure r=classify\r\n");
 /* USER CODE END 2 */
 
 
@@ -119,14 +190,8 @@ while (1)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-    uint8_t msg[] = "MRAS L031 Running\r\n";
-
-    HAL_UART_Transmit(&huart2, msg,
-                      sizeof(msg) - 1, HAL_MAX_DELAY);
-
-    HAL_Delay(1000);
-}
+    mras_task();
+  }
 /* USER CODE END 3 */
 }
 
